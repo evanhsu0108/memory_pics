@@ -84,6 +84,19 @@ export default function App() {
   // Check for API key on mount
   useEffect(() => {
     const checkKey = async () => {
+      // 1. Check URL for "?key=xxxx"
+      const urlParams = new URLSearchParams(window.location.search);
+      const keyFromUrl = urlParams.get('key');
+      
+      if (keyFromUrl) {
+        sessionStorage.setItem("GEMINI_API_KEY_RUNTIME", keyFromUrl);
+        // Clean URL to not expose it in the screen recording/share
+        const cleanUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+        setHasApiKey(true);
+        return;
+      }
+
       // @ts-ignore - window.aistudio is injected
       if (window.aistudio?.hasSelectedApiKey) {
         // @ts-ignore

@@ -32,6 +32,7 @@ interface VideoGenerationState {
   status: 'idle' | 'preparing' | 'generating_video' | 'generating_music' | 'completed' | 'error';
   progress: number;
   videoUrl?: string;
+  videoUrls?: string[];
   audioUrl?: string;
   error?: string;
   message?: string;
@@ -88,6 +89,8 @@ export default function App() {
         // @ts-ignore
         const selected = await window.aistudio.hasSelectedApiKey();
         setHasApiKey(selected);
+      } else if (process.env.GEMINI_API_KEY || sessionStorage.getItem("GEMINI_API_KEY_RUNTIME")) {
+        setHasApiKey(true);
       }
     };
     checkKey();
@@ -139,6 +142,12 @@ export default function App() {
       // @ts-ignore
       await window.aistudio.openSelectKey();
       setHasApiKey(true);
+    } else {
+      const key = window.prompt("請輸入您的 Gemini API 金鑰：");
+      if (key) {
+        sessionStorage.setItem("GEMINI_API_KEY_RUNTIME", key);
+        setHasApiKey(true);
+      }
     }
   };
 
@@ -153,15 +162,41 @@ export default function App() {
     setVideoState({ status: 'preparing', progress: 0, message: "準備中..." });
 
     try {
-      const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || '';
+      const apiKey = sessionStorage.getItem("GEMINI_API_KEY_RUNTIME") || process.env.API_KEY || process.env.GEMINI_API_KEY || '';
       const ai = new GoogleGenAI({ apiKey });
       
       // 1. Video Generation (5s)
       setVideoState({ status: 'generating_video', progress: 10, message: "正在生成影像..." });
       
-      const prompt = "A cinematic, high-quality memory video strictly based on the provided reference images. The animation MUST ONLY feature the landscapes, objects, and visual style from the uploaded photos. DO NOT generate any people, characters, or unrelated scenes. Focus on bringing these specific scenery memories to life with smooth transitions.";
+      let generatedUris: string[] = [];
+      const segments: { startIdx: number, endIdx: number }[] = [];
+      
+      if (images.length === 3) {
+         segments.push({ startIdx: 0, endIdx: 1 });
+         segments.push({ startIdx: 1, endIdx: 2 });
+      } else if (images.length > 0) {
+         segments.push({ startIdx: 0, endIdx: images.length - 1 });
+      }
 
-      const videoPayload: any = {
+      // Loop through segments to generate multiple videos if necessary
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        
+        if (segments.length > 1) {
+           setVideoState(prev => ({ ...prev, status: 'generating_video', progress: prev.progress + 2, message: `正在生成第 ${i+1}/${segments.length} 段動態影像 (需時較長)...` }));
+        }
+
+        let currentPrompt = "A cinematic, high-quality memory video strictly based on the provided reference image. Gently and naturally animate the subjects, people, and landscapes in the photo while perfectly preserving the original visual style and identity.";
+        
+        if (images.length === 2) {
+           currentPrompt = "A cinematic, high-quality memory video that smoothly transitions between the two provided reference images. Maintain the exact scene of the first photo for about 2 seconds, execute a seamless natural transition, and maintain the exact scene of the final photo for about 2 seconds.";
+        } else if (images.length === 3) {
+           currentPrompt = "A cinematic, high-quality memory video. Maintain the exact scene of the first photo for about 1.5 seconds, perform a smooth natural transition, and finally transition into the exact ending photo scene for 1.5 seconds.";
+        }
+
+        currentPrompt += " CRITICAL CONSTRAINT: You must STRICTLY limit every single frame to originate ONLY from the user-provided reference photos. You are allowed to moderately animate the existing visual elements (e.g., natural movements of people, subtle physics), but you must NEVER extrapolate, insert imaginative visual scenes, transform into unrelated dimensions, or hallucinate new objects/environments. Adhere 100% to the exact visual truth of the input photos.";
+
+        const videoPayload: any = {
         model: 'veo-3.1-lite-generate-preview',
         prompt,
         image: {
@@ -172,25 +207,46 @@ export default function App() {
           numberOfVideos: 1,
           resolution: '720p',
           aspectRatio: '16:9',
+          personGeneration: 'ALLOW_ADULT',
+          safetySettings: [
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
+          ]
         }
-      };
-
-      if (images.length > 1) {
-        videoPayload.config.lastFrame = {
-          imageBytes: images[images.length - 1].base64,
-          mimeType: images[images.length - 1].file.type,
         };
-      }
 
-      let operation = await ai.models.generateVideos(videoPayload);
+        if (seg.startIdx !== seg.endIdx) {
+          videoPayload.config.lastFrame = {
+            imageBytes: images[seg.endIdx].base64,
+            mimeType: images[seg.endIdx].file.type,
+          };
+        }
+
+        let operation = await ai.models.generateVideos(videoPayload);
 
       const pollOperation = async (op: any, startProgress: number, endProgress: number) => {
         let currentOp = op;
         let pollCount = 0;
+        
+        if (!currentOp || currentOp.error) {
+           throw new Error(`生成失敗: ${currentOp?.error?.message || '未知錯誤'}`);
+        }
+
         while (!currentOp.done) {
           await new Promise(resolve => setTimeout(resolve, 10000));
-          // @ts-ignore
-          currentOp = await ai.operations.getVideosOperation({ operation: currentOp });
+          try {
+            const opName = currentOp.name;
+            if (!opName) throw new Error("Operation 沒有回傳有效的 name");
+            
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/${opName}?key=${apiKey}`);
+            currentOp = await res.json();
+          } catch(e: any) {
+             console.error("Polling error:", e);
+             throw new Error(`查詢進度失敗: ${e.message}`);
+          }
+          
           if (currentOp.error) throw new Error(`生成失敗: ${currentOp.error.message}`);
           pollCount++;
           const progress = Math.min(startProgress + (pollCount * 2), endProgress);
@@ -199,8 +255,41 @@ export default function App() {
         return currentOp;
       };
 
-      operation = await pollOperation(operation, 10, 75);
-      const finalVideoData = operation.response?.generatedVideos?.[0]?.video;
+        const startProg = 10 + (i * 30);
+        const endProg = startProg + 30;
+        operation = await pollOperation(operation, startProg, endProg);
+        
+        if (operation.error) throw new Error(`一段影片生成失敗: ${operation.error.message}`);
+        
+        let finalVideoData = operation.response?.generatedVideos?.[0]?.video || operation.response?.generatedVideos?.[0];
+      
+        // Fallback for REST API structure
+        if (!finalVideoData && (operation.response as any)?.generateVideoResponse?.generatedSamples) {
+           finalVideoData = (operation.response as any).generateVideoResponse.generatedSamples[0]?.video;
+        }
+        
+        const filteredReasons = (operation.response as any)?.generateVideoResponse?.raiMediaFilteredReasons;
+        if (filteredReasons && filteredReasons.length > 0) {
+           let reason = filteredReasons[0];
+           if (reason.includes("photorealistic children")) {
+              reason = "Google 官方模型存在硬性限制，為了防止濫用，嚴格禁止生成任何包含「真實兒童臉孔」的影片，這是無法繞過的政策。請更換為成人或是純風景的照片再試一次。";
+           }
+           throw new Error(`Google AI 安全攔截: ${reason}`);
+        }
+        
+        const downloadLink = (finalVideoData as any)?.uri;
+        if (!downloadLink) {
+          console.error("Operation data:", operation);
+          throw new Error(`未能獲取影片連結，原始回應: ${JSON.stringify(operation.response || operation)}`);
+        }
+
+        const videoResponse = await fetch(downloadLink, {
+          method: 'GET',
+          headers: { 'x-goog-api-key': apiKey },
+        });
+        const videoBlob = await videoResponse.blob();
+        generatedUris.push(URL.createObjectURL(videoBlob));
+      }
 
       // 2. Generate Music (30s)
       setVideoState({ status: 'generating_music', progress: 80, message: "正在創作背景音樂..." });
@@ -225,18 +314,7 @@ export default function App() {
       const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      // 5. Finalize
-      const downloadLink = finalVideoData?.uri;
-      if (!downloadLink) throw new Error("未能獲取最終影片連結");
-
-      const videoResponse = await fetch(downloadLink, {
-        method: 'GET',
-        headers: { 'x-goog-api-key': apiKey },
-      });
-      const videoBlob = await videoResponse.blob();
-      const videoUrl = URL.createObjectURL(videoBlob);
-
-      setVideoState({ status: 'completed', progress: 100, videoUrl, audioUrl });
+      setVideoState({ status: 'completed', progress: 100, videoUrl: generatedUris[0], videoUrls: generatedUris, audioUrl });
     } catch (err: any) {
       console.error(err);
       let errorMessage = err.message || "製作過程中發生錯誤，請稍後再試。";
@@ -280,7 +358,7 @@ export default function App() {
             transition={{ delay: 0.2 }}
             className="text-neutral-500 text-lg max-w-md"
           >
-            將珍貴的風景照片編織成約 5 秒的感性短片，並配上 AI 創作的專屬音樂。（限定不含人物的景色照片）
+            將珍貴的照片編織成約 5 秒的感性短片，並配上 AI 創作的專屬音樂。包含人物或風景的照片皆可。
           </motion.p>
         </div>
 
@@ -385,7 +463,7 @@ export default function App() {
             <div className="text-sm text-amber-800 space-y-1">
               <p className="font-semibold">Pro 製作小撇步：</p>
               <ul className="list-disc list-inside space-y-1 opacity-80">
-                <li>我們將使用 Veo Lite 模型，完美呈現風景細節（請上傳不含人物的景色照片）。</li>
+                <li>我們將使用 Veo Lite 模型，完美呈現照片細節（支援風景與人物，非公眾人物）。</li>
                 <li>影片長度約 5 秒，並配上 AI 原創音樂。</li>
                 <li>此過程包含影像生成與音樂創作，約需 1 分鐘。</li>
               </ul>
@@ -449,23 +527,57 @@ export default function App() {
                 </div>
               )}
 
-              {videoState.status === 'completed' && videoState.videoUrl && (
+              {videoState.status === 'completed' && videoState.videoUrls && (
                 <div className="w-full space-y-6">
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="relative aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-neutral-800"
                   >
-                    <video 
-                      ref={videoRef}
-                      src={videoState.videoUrl} 
-                      controls 
-                      autoPlay 
-                      loop
-                      className="w-full h-full"
-                    />
+                    {videoState.videoUrls.map((url, idx) => (
+                      <video 
+                        key={idx}
+                        id={`vid-${idx}`}
+                        src={url} 
+                        style={{ opacity: idx === 0 ? 1 : 0, display: idx === 0 ? 'block' : 'none' }}
+                        playsInline
+                        className="absolute inset-0 w-full h-full"
+                        autoPlay={idx === 0}
+                        muted={true}
+                        onPlay={(e) => {
+                           // Accelerate to 2x if we sequence 2 videos to fit in 5s
+                           if (videoState.videoUrls!.length === 2) {
+                              e.currentTarget.playbackRate = 2.0;
+                           }
+                        }}
+                        onEnded={(e) => {
+                           const vids = videoState.videoUrls!;
+                           const nextIdx = (idx + 1) % vids.length;
+                           const nextVid = document.getElementById(`vid-${nextIdx}`) as HTMLVideoElement;
+                           const targetOpacityObj = (e.currentTarget as HTMLElement).style;
+                           targetOpacityObj.display = 'none';
+                           targetOpacityObj.opacity = '0';
+                           
+                           if (nextVid) {
+                              nextVid.style.display = 'block';
+                              nextVid.style.opacity = '1';
+                              nextVid.currentTime = 0;
+                              if (vids.length === 2) {
+                                  nextVid.playbackRate = 2.0;
+                              }
+                              nextVid.play().catch(console.error);
+                           }
+                           
+                           if (nextIdx === 0 && audioRef.current) {
+                              audioRef.current.currentTime = 0;
+                              audioRef.current.play();
+                           }
+                        }}
+                      />
+                    ))}
+                    
                     {videoState.audioUrl && (
-                      <audio ref={audioRef} src={videoState.audioUrl} loop className="hidden" />
+                      <audio ref={audioRef} autoPlay src={videoState.audioUrl} loop className="hidden" />
                     )}
                   </motion.div>
                   <div className="flex gap-4">

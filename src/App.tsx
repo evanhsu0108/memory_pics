@@ -181,7 +181,7 @@ export default function App() {
       // 1. Video Generation (5s)
       setVideoState({ status: 'generating_video', progress: 10, message: "正在生成影像..." });
       
-      const currentPrompt = "A high-precision, cinematic continuous video based precisely on the provided reference photo. Transform ONLY the weather, lighting, and season to represent the four seasons smoothly over time. CRITICAL CONSTRAINT 1 (SCENERY): You must maintain the original scene and objects exactly as they are. Do NOT hallucinate, add, or create any new objects or unrelated landscapes. CRITICAL CONSTRAINT 2 (PEOPLE): If there are people, animate their bodily movements lively and naturally, but you MUST strictly maintain their exact original clothing, facial features, and overall physical appearance. Do not modify their appearance in any way.";
+      const currentPrompt = "A highly photorealistic, cinematic slow-motion video. Transform ONLY the weather, lighting, and season to represent the four seasons smoothly and NATURALLY progressing over time, maintaining ultra-realistic lighting. CRITICAL CONSTRAINT 1 (SCENERY): You must strictly maintain the original scene and objects exactly as they are without adding fake elements. CRITICAL CONSTRAINT 2 (PERSON STRICT LOCK): You must perfectly maintain the exact facial features, hairstyle, body shape, and intricate clothing of any people. They are allowed to have natural, vivid micromovements and subtle bodily motions, but their appearance must NOT drift or morph in any way.";
 
       const videoPayload: any = {
         model: 'veo-3.1-generate-preview',
@@ -441,7 +441,7 @@ export default function App() {
               <p className="font-semibold">Pro 製作小撇步：</p>
               <ul className="list-disc list-inside space-y-1 opacity-80">
                 <li>我們將使用最頂級的 Veo 3 Generate 模型，為您呈現完美四季流轉細節。</li>
-                <li>影片長度約 5 秒，並配上 AI 原創音樂。</li>
+                <li>影片長度約 10 秒，並配上 AI 原創音樂。</li>
                 <li>此過程包含影像生成與音樂創作，約需 1 分鐘。</li>
               </ul>
             </div>
@@ -518,6 +518,9 @@ export default function App() {
                       autoPlay 
                       loop
                       className="w-full h-full"
+                      onPlay={(e) => {
+                        e.currentTarget.playbackRate = 0.5;
+                      }}
                     />
                     {videoState.audioUrl && (
                       <audio ref={audioRef} autoPlay src={videoState.audioUrl} loop className="hidden" />

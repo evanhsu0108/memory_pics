@@ -181,7 +181,7 @@ export default function App() {
       // 1. Video Generation (5s)
       setVideoState({ status: 'generating_video', progress: 10, message: "正在生成影像..." });
       
-      const currentPrompt = "A high-precision, cinematic continuous video based precisely on the provided reference photo. Transform the environment around the subjects into a magical, dynamically changing representation of the four seasons (Spring blooms, Summer sun, Autumn winds, Winter snow) happening smoothly over time. If there are people or subjects in the photo, animate them lively and joyfully interacting with the changing seasonal environment. CRITICAL CONSTRAINT: You must perfectly preserve the exact identity and facial features of the original people in the photo. Do not distort or hallucinate unrelated subjects.";
+      const currentPrompt = "A high-precision, cinematic continuous video based precisely on the provided reference photo. Transform ONLY the weather, lighting, and season to represent the four seasons smoothly over time. CRITICAL CONSTRAINT 1 (SCENERY): You must maintain the original scene and objects exactly as they are. Do NOT hallucinate, add, or create any new objects or unrelated landscapes. CRITICAL CONSTRAINT 2 (PEOPLE): If there are people, animate their bodily movements lively and naturally, but you MUST strictly maintain their exact original clothing, facial features, and overall physical appearance. Do not modify their appearance in any way.";
 
       const videoPayload: any = {
         model: 'veo-3.1-generate-preview',

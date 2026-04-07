@@ -122,8 +122,8 @@ export default function App() {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
-    if (images.length + files.length > 3) {
-      alert("最多只能上傳 3 張照片喔！");
+    if (images.length + files.length > 1) {
+      alert("最多只能上傳 1 張照片喔！");
       return;
     }
 
@@ -181,37 +181,11 @@ export default function App() {
       // 1. Video Generation (5s)
       setVideoState({ status: 'generating_video', progress: 10, message: "正在生成影像..." });
       
-      let generatedUris: string[] = [];
-      const segments: { startIdx: number, endIdx: number }[] = [];
-      
-      if (images.length === 3) {
-         segments.push({ startIdx: 0, endIdx: 1 });
-         segments.push({ startIdx: 1, endIdx: 2 });
-      } else if (images.length > 0) {
-         segments.push({ startIdx: 0, endIdx: images.length - 1 });
-      }
+      const currentPrompt = "A high-precision, cinematic continuous video based precisely on the provided reference photo. Transform the environment around the subjects into a magical, dynamically changing representation of the four seasons (Spring blooms, Summer sun, Autumn winds, Winter snow) happening smoothly over time. If there are people or subjects in the photo, animate them lively and joyfully interacting with the changing seasonal environment. CRITICAL CONSTRAINT: You must perfectly preserve the exact identity and facial features of the original people in the photo. Do not distort or hallucinate unrelated subjects.";
 
-      // Loop through segments to generate multiple videos if necessary
-      for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
-        
-        if (segments.length > 1) {
-           setVideoState(prev => ({ ...prev, status: 'generating_video', progress: prev.progress + 2, message: `正在生成第 ${i+1}/${segments.length} 段動態影像 (需時較長)...` }));
-        }
-
-        let currentPrompt = "A cinematic, high-quality memory video strictly based on the provided reference image. Gently and naturally animate the subjects, people, and landscapes in the photo while perfectly preserving the original visual style and identity.";
-        
-        if (images.length === 2) {
-           currentPrompt = "A cinematic, high-quality memory video that smoothly transitions between the two provided reference images. Maintain the exact scene of the first photo for about 2 seconds, execute a seamless natural transition, and maintain the exact scene of the final photo for about 2 seconds.";
-        } else if (images.length === 3) {
-           currentPrompt = "A cinematic, high-quality memory video. Maintain the exact scene of the first photo for about 1.5 seconds, perform a smooth natural transition, and finally transition into the exact ending photo scene for 1.5 seconds.";
-        }
-
-        currentPrompt += " CRITICAL CONSTRAINT: You must STRICTLY limit every single frame to originate ONLY from the user-provided reference photos. You are allowed to moderately animate the existing visual elements (e.g., natural movements of people, subtle physics), but you must NEVER extrapolate, insert imaginative visual scenes, transform into unrelated dimensions, or hallucinate new objects/environments. Adhere 100% to the exact visual truth of the input photos.";
-
-        const videoPayload: any = {
-        model: 'veo-3.1-lite-generate-preview',
-        prompt,
+      const videoPayload: any = {
+        model: 'veo-3.1-generate-preview',
+        prompt: currentPrompt,
         image: {
           imageBytes: images[0].base64,
           mimeType: images[0].file.type,
@@ -228,16 +202,9 @@ export default function App() {
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" }
           ]
         }
-        };
+      };
 
-        if (seg.startIdx !== seg.endIdx) {
-          videoPayload.config.lastFrame = {
-            imageBytes: images[seg.endIdx].base64,
-            mimeType: images[seg.endIdx].file.type,
-          };
-        }
-
-        let operation = await ai.models.generateVideos(videoPayload);
+      let operation = await ai.models.generateVideos(videoPayload);
 
       const pollOperation = async (op: any, startProgress: number, endProgress: number) => {
         let currentOp = op;
@@ -268,9 +235,7 @@ export default function App() {
         return currentOp;
       };
 
-        const startProg = 10 + (i * 30);
-        const endProg = startProg + 30;
-        operation = await pollOperation(operation, startProg, endProg);
+        operation = await pollOperation(operation, 10, 75);
         
         if (operation.error) throw new Error(`一段影片生成失敗: ${operation.error.message}`);
         
@@ -301,8 +266,7 @@ export default function App() {
           headers: { 'x-goog-api-key': apiKey },
         });
         const videoBlob = await videoResponse.blob();
-        generatedUris.push(URL.createObjectURL(videoBlob));
-      }
+        const videoUrl = URL.createObjectURL(videoBlob);
 
       // 2. Generate Music (30s)
       setVideoState({ status: 'generating_music', progress: 80, message: "正在創作背景音樂..." });
@@ -327,7 +291,7 @@ export default function App() {
       const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      setVideoState({ status: 'completed', progress: 100, videoUrl: generatedUris[0], videoUrls: generatedUris, audioUrl });
+      setVideoState({ status: 'completed', progress: 100, videoUrl: videoUrl, audioUrl });
     } catch (err: any) {
       console.error(err);
       let errorMessage = err.message || "製作過程中發生錯誤，請稍後再試。";
@@ -371,7 +335,7 @@ export default function App() {
             transition={{ delay: 0.2 }}
             className="text-neutral-500 text-lg max-w-md"
           >
-            將珍貴的照片編織成約 5 秒的感性短片，並配上 AI 創作的專屬音樂。包含人物或風景的照片皆可。
+            將單張照片一鍵轉化為精彩的四季流轉特效動畫，並讓照片中的人物生動活潑起來。
           </motion.p>
         </div>
 
@@ -395,7 +359,7 @@ export default function App() {
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-semibold flex items-center gap-2">
                 <ImageIcon className="w-5 h-5 text-amber-500" />
-                上傳回憶照片 ({images.length}/3)
+                上傳照片 (1/1)
               </h2>
               {images.length > 0 && (
                 <button 
@@ -412,7 +376,7 @@ export default function App() {
               className={`
                 relative group cursor-pointer border-2 border-dashed rounded-2xl p-12
                 flex flex-col items-center justify-center gap-4 transition-all
-                ${images.length >= 3 ? 'opacity-50 pointer-events-none' : 'hover:border-amber-300 hover:bg-amber-50/30'}
+                ${images.length >= 1 ? 'opacity-50 pointer-events-none' : 'hover:border-amber-300 hover:bg-amber-50/30'}
                 border-neutral-200
               `}
             >
@@ -429,7 +393,7 @@ export default function App() {
               </div>
               <div className="text-center">
                 <p className="font-medium text-neutral-700">點擊或拖拽照片至此</p>
-                <p className="text-sm text-neutral-400 mt-1">支援 JPG, PNG 格式，最多 3 張</p>
+                <p className="text-sm text-neutral-400 mt-1">支援 JPG, PNG 格式，限上傳 1 張照片</p>
               </div>
             </div>
 
@@ -476,7 +440,7 @@ export default function App() {
             <div className="text-sm text-amber-800 space-y-1">
               <p className="font-semibold">Pro 製作小撇步：</p>
               <ul className="list-disc list-inside space-y-1 opacity-80">
-                <li>我們將使用 Veo Lite 模型，完美呈現照片細節（支援風景與人物，非公眾人物）。</li>
+                <li>我們將使用最頂級的 Veo 3 Generate 模型，為您呈現完美四季流轉細節。</li>
                 <li>影片長度約 5 秒，並配上 AI 原創音樂。</li>
                 <li>此過程包含影像生成與音樂創作，約需 1 分鐘。</li>
               </ul>
@@ -511,7 +475,7 @@ export default function App() {
                         : 'bg-neutral-800 text-neutral-600 cursor-not-allowed'}
                     `}
                   >
-                    製作 5s 音樂影片
+                    製作季節變換特效
                     <ChevronRight className="w-5 h-5" />
                   </button>
                 </div>
@@ -527,7 +491,7 @@ export default function App() {
                   </div>
                   <div className="space-y-3">
                     <p className="text-xl font-medium text-white">{videoState.message}</p>
-                    <p className="text-neutral-500 text-sm">正在執行多階段生成，請耐心等候</p>
+                    <p className="text-neutral-500 text-sm">影像生成中，請耐心等候</p>
                   </div>
                   {/* Progress Bar */}
                   <div className="w-full h-1.5 bg-neutral-800 rounded-full overflow-hidden">
@@ -540,55 +504,21 @@ export default function App() {
                 </div>
               )}
 
-              {videoState.status === 'completed' && videoState.videoUrls && (
+              {videoState.status === 'completed' && videoState.videoUrl && (
                 <div className="w-full space-y-6">
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="relative aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-neutral-800"
                   >
-                    {videoState.videoUrls.map((url, idx) => (
-                      <video 
-                        key={idx}
-                        id={`vid-${idx}`}
-                        src={url} 
-                        style={{ opacity: idx === 0 ? 1 : 0, display: idx === 0 ? 'block' : 'none' }}
-                        playsInline
-                        className="absolute inset-0 w-full h-full"
-                        autoPlay={idx === 0}
-                        muted={true}
-                        onPlay={(e) => {
-                           // Accelerate to 2x if we sequence 2 videos to fit in 5s
-                           if (videoState.videoUrls!.length === 2) {
-                              e.currentTarget.playbackRate = 2.0;
-                           }
-                        }}
-                        onEnded={(e) => {
-                           const vids = videoState.videoUrls!;
-                           const nextIdx = (idx + 1) % vids.length;
-                           const nextVid = document.getElementById(`vid-${nextIdx}`) as HTMLVideoElement;
-                           const targetOpacityObj = (e.currentTarget as HTMLElement).style;
-                           targetOpacityObj.display = 'none';
-                           targetOpacityObj.opacity = '0';
-                           
-                           if (nextVid) {
-                              nextVid.style.display = 'block';
-                              nextVid.style.opacity = '1';
-                              nextVid.currentTime = 0;
-                              if (vids.length === 2) {
-                                  nextVid.playbackRate = 2.0;
-                              }
-                              nextVid.play().catch(console.error);
-                           }
-                           
-                           if (nextIdx === 0 && audioRef.current) {
-                              audioRef.current.currentTime = 0;
-                              audioRef.current.play();
-                           }
-                        }}
-                      />
-                    ))}
-                    
+                    <video 
+                      ref={videoRef}
+                      src={videoState.videoUrl} 
+                      controls 
+                      autoPlay 
+                      loop
+                      className="w-full h-full"
+                    />
                     {videoState.audioUrl && (
                       <audio ref={audioRef} autoPlay src={videoState.audioUrl} loop className="hidden" />
                     )}
